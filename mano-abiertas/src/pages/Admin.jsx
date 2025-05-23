@@ -13,22 +13,22 @@ import {
     DialogTitle,
     Snackbar,
     Alert,
-    useTheme
+    useTheme // Import useTheme
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import { useNavigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from '../firebase/config';
-import LugarForm from '../components/LugarForm'; // Import LugarForm
-import TramiteForm from '../components/TramiteForm'; // Import TramiteForm
-import { crearLugar } from '../services/lugarService'; // Import service function
-import { crearTramite } from '../services/tramiteService'; // Import service function
+import LugarForm from '../components/LugarForm';
+import TramiteForm from '../components/TramiteForm';
+import { crearLugar } from '../services/lugarService';
+import { crearTramite } from '../services/tramiteService';
 
 const Admin = () => {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loadingAuth, setLoadingAuth] = useState(true); // Renamed to avoid conflict
     const navigate = useNavigate();
-    const theme = useTheme();
+    const theme = useTheme(); // Initialize useTheme
 
     const [openLugarModal, setOpenLugarModal] = useState(false);
     const [openTramiteModal, setOpenTramiteModal] = useState(false);
@@ -42,13 +42,13 @@ const Admin = () => {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
-            setLoading(false);
-            if (!currentUser) {
+            setLoadingAuth(false); // Use setLoadingAuth
+            if (!currentUser && !loadingAuth) { // Ensure not to redirect while auth is still loading
                 navigate('/login');
             }
         });
         return () => unsubscribe();
-    }, [navigate]);
+    }, [navigate, loadingAuth]); // Added loadingAuth to dependency
 
     const handleLogout = async () => {
         try {
@@ -62,13 +62,13 @@ const Admin = () => {
 
     const handleOpenLugarModal = () => setOpenLugarModal(true);
     const handleCloseLugarModal = () => {
-        if (isSubmitting) return; // Prevent closing while submitting
+        if (isSubmitting) return;
         setOpenLugarModal(false);
     };
 
     const handleOpenTramiteModal = () => setOpenTramiteModal(true);
     const handleCloseTramiteModal = () => {
-        if (isSubmitting) return; // Prevent closing while submitting
+        if (isSubmitting) return;
         setOpenTramiteModal(false);
     };
 
@@ -104,7 +104,7 @@ const Admin = () => {
         setSnackbar(prev => ({ ...prev, open: false }));
     };
 
-    if (loading) {
+    if (loadingAuth) { // Use loadingAuth
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
                 <CircularProgress />
@@ -113,18 +113,18 @@ const Admin = () => {
     }
 
     if (!user) {
-        return null; // El useEffect redirigirá a /login
+        return null;
     }
 
     return (
-        <Box sx={{ mt: 2, mb: 8, p: 2 }}>
+        <Box sx={{ mt: 2, mb: 8, p: { xs: 1, sm: 2 } }}> {/* Added responsive padding */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h5" component="h1">
                     Panel de Administración
                 </Typography>
                 <Button
                     variant="outlined"
-                    color="secondary" // Changed color for distinction
+                    color="secondary"
                     onClick={handleLogout}
                 >
                     Cerrar sesión
@@ -135,13 +135,14 @@ const Admin = () => {
                 Bienvenido, {user.email}.
             </Typography>
 
-            {/* Botones para cargar nuevos items */}
-            <Box sx={{ display: 'flex', gap: 2, mb: 4, justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, mb: 4, justifyContent: 'center' }}> {/* Responsive flex direction */}
                 <Button
                     variant="contained"
                     color="primary"
                     onClick={handleOpenLugarModal}
                     size="large"
+                    fullWidth // Make buttons full width on small screens
+                    sx={{ flexGrow: { sm: 1 } }} // Allow buttons to grow on larger screens
                 >
                     Cargar Nuevo Lugar
                 </Button>
@@ -150,6 +151,8 @@ const Admin = () => {
                     color="primary"
                     onClick={handleOpenTramiteModal}
                     size="large"
+                    fullWidth // Make buttons full width on small screens
+                    sx={{ flexGrow: { sm: 1 } }} // Allow buttons to grow on larger screens
                 >
                     Cargar Nuevo Trámite
                 </Button>
@@ -167,10 +170,10 @@ const Admin = () => {
                                 Administrar Lugares
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                                Edita, elimina y gestiona los lugares de ayuda disponibles.
+                                Edita, activa/desactiva y gestiona los lugares de ayuda.
                             </Typography>
                         </CardContent>
-                        <CardActions sx={{ justifyContent: 'center' }}>
+                        <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                             <Button
                                 size="small"
                                 color="primary"
@@ -190,16 +193,15 @@ const Admin = () => {
                                 Administrar Trámites
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                                Edita, elimina y gestiona la información sobre trámites.
+                                Edita, activa/desactiva y gestiona la información sobre trámites.
                             </Typography>
                         </CardContent>
-                        <CardActions sx={{ justifyContent: 'center' }}>
+                        <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                             <Button
                                 size="small"
                                 color="primary"
                                 variant="outlined"
                                 onClick={() => navigate('/admin/tramites')}
-                            // disabled // Habilitar cuando la gestión de trámites esté completa
                             >
                                 Ir a Trámites
                             </Button>
@@ -211,7 +213,7 @@ const Admin = () => {
             {/* Modal para Nuevo Lugar */}
             <Dialog open={openLugarModal} onClose={handleCloseLugarModal} maxWidth="md" fullWidth>
                 <DialogTitle sx={{ pb: 1, fontSize: '1.25rem' }}>Agregar Nuevo Lugar</DialogTitle>
-                <DialogContent sx={{ pt: '10px !important' }}>
+                <DialogContent sx={{ pt: '10px !important' }}> {/* Consistent padding */}
                     <LugarForm
                         onSubmit={handleLugarSubmit}
                         isLoading={isSubmitting}
@@ -220,7 +222,7 @@ const Admin = () => {
                         isModalVersion={true}
                     />
                 </DialogContent>
-                <DialogActions sx={{ p: theme.spacing(2, 3) }}>
+                <DialogActions sx={{ p: theme.spacing(2, 3) }}> {/* Consistent padding */}
                     <Button onClick={handleCloseLugarModal} disabled={isSubmitting}>Cancelar</Button>
                     <Button
                         type="submit"
@@ -235,19 +237,21 @@ const Admin = () => {
 
             {/* Modal para Nuevo Trámite */}
             <Dialog open={openTramiteModal} onClose={handleCloseTramiteModal} maxWidth="md" fullWidth>
-                <DialogTitle>Agregar Nuevo Trámite</DialogTitle>
-                <DialogContent>
+                <DialogTitle sx={{ pb: 1, fontSize: '1.25rem' }}>Agregar Nuevo Trámite</DialogTitle> {/* Consistent title styling */}
+                <DialogContent sx={{ pt: '10px !important' }}> {/* Consistent padding */}
                     <TramiteForm
                         onSubmit={handleTramiteSubmit}
                         isLoading={isSubmitting}
                         formId="tramite-modal-form"
+                        hideSubmitButton={true} // Hide internal submit button
+                        isModalVersion={true} // Apply modal styling
                     />
                 </DialogContent>
-                <DialogActions sx={{ p: 2 }}>
+                <DialogActions sx={{ p: theme.spacing(2, 3) }}> {/* Consistent padding */}
                     <Button onClick={handleCloseTramiteModal} disabled={isSubmitting}>Cancelar</Button>
                     <Button
                         type="submit"
-                        form="tramite-modal-form"
+                        form="tramite-modal-form" // Links to the TramiteForm
                         variant="contained"
                         disabled={isSubmitting}
                     >
@@ -256,7 +260,6 @@ const Admin = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Snackbar para notificaciones */}
             <Snackbar
                 open={snackbar.open}
                 autoHideDuration={6000}
@@ -267,6 +270,7 @@ const Admin = () => {
                     onClose={handleCloseSnackbar}
                     severity={snackbar.severity}
                     sx={{ width: '100%' }}
+                    variant="filled" // Consistent variant
                 >
                     {snackbar.message}
                 </Alert>

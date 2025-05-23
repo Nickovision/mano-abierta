@@ -10,57 +10,65 @@ import {
     InputLabel,
     Select,
     MenuItem,
-    FormHelperText
+    FormHelperText,
+    CircularProgress
 } from '@mui/material';
+import { CATEGORIAS_TRAMITE } from '../constants/tramitesConstants';
 
-const categoriasTramite = [
-    'Documentación',
-    'Salud',
-    'Educación',
-    'Trabajo',
-    'Vivienda',
-    'Legal',
-    'Otro'
-];
+const initialFormData = {
+    titulo: '',
+    descripcion: '',
+    requisitos: '',
+    categoria: '',
+    enlace: '',
+    fuente: ''
+};
 
-const TramiteForm = ({ tramite, onSubmit, isLoading, formId, hideSubmitButton = false }) => {
-    const [formData, setFormData] = useState({
-        titulo: '',
-        descripcion: '',
-        requisitos: '',
-        categoria: '',
-        enlace: '', // Nuevo campo para enlace
-        fuente: '' // Nuevo campo para fuente
-    });
-
+const TramiteForm = ({ tramite, onSubmit, isLoading, formId, hideSubmitButton = false, isModalVersion = false }) => {
+    const [formData, setFormData] = useState(initialFormData);
     const [errors, setErrors] = useState({});
 
     useEffect(() => {
         if (tramite) {
-            setFormData(tramite);
+            setFormData({
+                titulo: tramite.titulo || '',
+                descripcion: tramite.descripcion || '',
+                requisitos: tramite.requisitos || '',
+                categoria: tramite.categoria || '',
+                enlace: tramite.enlace || '',
+                fuente: tramite.fuente || ''
+            });
+        } else {
+            setFormData(initialFormData);
         }
     }, [tramite]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData({
-            ...formData,
+        setFormData(prev => ({
+            ...prev,
             [name]: value
-        });
+        }));
+        if (errors[name]) {
+            setErrors(prevErrors => ({ ...prevErrors, [name]: undefined }));
+        }
     };
 
     const validate = () => {
         const newErrors = {};
-        if (!formData.titulo) newErrors.titulo = 'El título es obligatorio';
-        if (!formData.descripcion) newErrors.descripcion = 'La descripción es obligatoria';
+        if (!formData.titulo.trim()) newErrors.titulo = 'El título es obligatorio';
+        if (!formData.descripcion.trim()) newErrors.descripcion = 'La descripción es obligatoria';
         if (!formData.categoria) newErrors.categoria = 'La categoría es obligatoria';
-        if (!formData.fuente) newErrors.fuente = 'La fuente es obligatoria';
+        if (!formData.fuente.trim()) newErrors.fuente = 'La fuente es obligatoria';
 
-        if (formData.enlace) {
+        if (formData.enlace.trim()) {
             try {
-                new URL(formData.enlace);
+                const url = new URL(formData.enlace.startsWith('http') ? formData.enlace : `https://${formData.enlace}`);
+                if (url.protocol !== "http:" && url.protocol !== "https:") {
+                    throw new Error("Invalid protocol");
+                }
             } catch (_) {
-                newErrors.enlace = 'El enlace no es una URL válida';
+                newErrors.enlace = 'El enlace no es una URL válida (ej: https://ejemplo.com)';
             }
         }
 
@@ -75,98 +83,132 @@ const TramiteForm = ({ tramite, onSubmit, isLoading, formId, hideSubmitButton = 
         }
     };
 
-    return (
-        <Box component="form" id={formId} onSubmit={handleSubmit} sx={{ mt: 1, mb: hideSubmitButton ? 0 : 8 }}>
-            {/* No Paper or main title here, as it's meant for a Dialog */}
-            <Grid container spacing={2}>
-                <Grid item xs={12}>
-                    <TextField
-                        name="titulo"
-                        label="Título del Trámite"
-                        value={formData.titulo}
-                        onChange={handleChange}
-                        fullWidth
-                        required
-                        error={!!errors.titulo}
-                        helperText={errors.titulo}
-                        disabled={isLoading}
-                    />
-                </Grid>
+    const commonTextFieldProps = {
+        variant: "outlined",
+        size: "small",
+        fullWidth: true,
+        InputLabelProps: { shrink: true, style: { fontSize: '0.9rem' } },
+        inputProps: { style: { fontSize: '0.9rem' } },
+        disabled: isLoading,
+    };
 
-                <Grid item xs={12}>
-                    <FormControl fullWidth required error={!!errors.categoria}>
-                        <InputLabel>Categoría</InputLabel>
-                        <Select
-                            name="categoria"
-                            value={formData.categoria}
-                            onChange={handleChange}
-                            label="Categoría"
-                            disabled={isLoading}
-                        >
-                            {categoriasTramite.map((cat) => (
-                                <MenuItem key={cat} value={cat}>{cat}</MenuItem>
-                            ))}
-                        </Select>
-                        {errors.categoria && <FormHelperText>{errors.categoria}</FormHelperText>}
-                    </FormControl>
-                </Grid>
-
-                <Grid item xs={12}>
-                    <TextField
-                        name="descripcion"
-                        label="Descripción Detallada"
-                        value={formData.descripcion}
-                        onChange={handleChange}
-                        fullWidth
-                        required
-                        multiline
-                        rows={3}
-                        error={!!errors.descripcion}
-                        helperText={errors.descripcion}
-                        disabled={isLoading}
-                    />
-                </Grid>
-
-                <Grid item xs={12}>
-                    <TextField
-                        name="requisitos"
-                        label="Requisitos (opcional)"
-                        value={formData.requisitos}
-                        onChange={handleChange}
-                        fullWidth
-                        multiline
-                        rows={3}
-                        disabled={isLoading}
-                    />
-                </Grid>
-                <Grid item xs={12}>
-                    <TextField
-                        name="enlace"
-                        label="Enlace a más información (opcional)"
-                        value={formData.enlace}
-                        onChange={handleChange}
-                        fullWidth
-                        error={!!errors.enlace}
-                        helperText={errors.enlace}
-                        disabled={isLoading}
-                    />
-                </Grid>
-                <Grid item xs={12}>
-                    <TextField
-                        name="fuente"
-                        label="Fuente de la información"
-                        value={formData.fuente}
-                        onChange={handleChange}
-                        fullWidth
-                        required
-                        error={!!errors.fuente}
-                        helperText={errors.fuente}
-                        disabled={isLoading}
-                    />
-                </Grid>
-
-                {/* Submit button will be in the Dialog */}
+    const formGridContent = (
+        <Grid container spacing={2.5} sx={{ width: '100%' }}>
+            <Grid item xs={12}>
+                <TextField
+                    name="titulo"
+                    label="Título del Trámite"
+                    value={formData.titulo}
+                    onChange={handleChange}
+                    error={!!errors.titulo}
+                    helperText={errors.titulo}
+                    {...commonTextFieldProps}
+                    required
+                />
             </Grid>
+
+            <Grid item xs={12}>
+                <FormControl fullWidth error={!!errors.categoria} size="small">
+                    <InputLabel shrink sx={{ fontSize: '0.9rem' }}>Categoría</InputLabel>
+                    <Select
+                        name="categoria"
+                        value={formData.categoria}
+                        onChange={handleChange}
+                        label="Categoría"
+                        displayEmpty
+                        inputProps={{ style: { fontSize: '0.9rem' } }}
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 200 } } }}
+                        disabled={isLoading}
+                        required
+                    >
+                        <MenuItem value="" disabled sx={{ fontSize: '0.9rem' }}><em>Seleccione una</em></MenuItem>
+                        {categoriasTramite.map((cat) => (
+                            <MenuItem key={cat} value={cat} sx={{ fontSize: '0.9rem' }}>{cat}</MenuItem>
+                        ))}
+                    </Select>
+                    {errors.categoria && <FormHelperText>{errors.categoria}</FormHelperText>}
+                </FormControl>
+            </Grid>
+
+            <Grid item xs={12}>
+                <TextField
+                    name="descripcion"
+                    label="Descripción Detallada"
+                    value={formData.descripcion}
+                    onChange={handleChange}
+                    multiline
+                    rows={3}
+                    error={!!errors.descripcion}
+                    helperText={errors.descripcion}
+                    {...commonTextFieldProps}
+                    required
+                />
+            </Grid>
+
+            <Grid item xs={12}>
+                <TextField
+                    name="requisitos"
+                    label="Requisitos (opcional)"
+                    value={formData.requisitos}
+                    onChange={handleChange}
+                    multiline
+                    rows={3}
+                    {...commonTextFieldProps}
+                />
+            </Grid>
+            <Grid item xs={12}>
+                <TextField
+                    name="enlace"
+                    label="Enlace a más información (opcional)"
+                    value={formData.enlace}
+                    onChange={handleChange}
+                    error={!!errors.enlace}
+                    helperText={errors.enlace}
+                    {...commonTextFieldProps}
+                />
+            </Grid>
+            <Grid item xs={12}>
+                <TextField
+                    name="fuente"
+                    label="Fuente de la información"
+                    value={formData.fuente}
+                    onChange={handleChange}
+                    error={!!errors.fuente}
+                    helperText={errors.fuente}
+                    {...commonTextFieldProps}
+                    required
+                />
+            </Grid>
+        </Grid>
+    );
+
+    if (isModalVersion) {
+        return (
+            <Box component="form" id={formId} onSubmit={handleSubmit} sx={{ pt: 1, width: '100%' }}>
+                {formGridContent}
+            </Box>
+        );
+    }
+
+    return (
+        <Box component="form" id={formId} onSubmit={handleSubmit} sx={{ mt: 2, mb: hideSubmitButton ? 0 : 8, width: '100%' }}>
+            <Paper elevation={3} sx={{ p: { xs: 2, sm: 3 } }}>
+                {formGridContent}
+                {!hideSubmitButton && (
+                    <Grid item xs={12} sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+                        <Button
+                            type="submit"
+                            variant="contained"
+                            color="primary"
+                            size="large"
+                            disabled={isLoading}
+                            sx={{ minWidth: 200 }}
+                        >
+                            {isLoading ? <CircularProgress size={24} sx={{ color: 'white', mr: 1 }} /> : (tramite ? 'Actualizar Trámite' : 'Crear Trámite')}
+                        </Button>
+                    </Grid>
+                )}
+            </Paper>
         </Box>
     );
 };
