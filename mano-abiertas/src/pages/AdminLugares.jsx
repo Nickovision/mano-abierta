@@ -13,46 +13,50 @@ import {
     Dialog,
     DialogActions,
     DialogContent,
+    DialogContentText,
     DialogTitle,
-    TextField,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
     CircularProgress,
     IconButton,
     Snackbar,
-    Alert
+    Alert,
+    useTheme
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, ArrowBack as ArrowBackIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, ArrowBack as ArrowBackIcon, VisibilityOff as VisibilityOffIcon, Visibility as VisibilityIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../firebase/config';
+// import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'; // Service functions will handle this
+// import { db } from '../firebase/config'; // Service functions will handle this
+import { auth } from '../firebase/config'; // Still needed for auth check
 import { onAuthStateChanged } from 'firebase/auth';
-import { TIPOS_RECURSO } from '../constants/lugaresConstants';
+
+import LugarForm from '../components/LugarForm'; // Import LugarForm
+import {
+    obtenerLugaresConFiltros, // To fetch all places including inactive
+    crearLugar,
+    actualizarLugar,
+    desactivarLugar,
+    activarLugar
+} from '../services/lugarService'; // Import service functions
 
 const AdminLugares = () => {
     const [lugares, setLugares] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Page loading
     const [openDialog, setOpenDialog] = useState(false);
-    const [currentLugar, setCurrentLugar] = useState({
-        nombreLugar: '',
-        direccionLugar: '',
-        telefono: '',
-        horario: '',
-        descripcion: '',
-        tipoRecurso: '',
-        activo: true
-    });
+
+    // This state will hold the lugar object to be passed to LugarForm
+    const [lugarDataForForm, setLugarDataForForm] = useState(null);
+
     const [isEditing, setIsEditing] = useState(false);
+    const [isSubmittingForm, setIsSubmittingForm] = useState(false); // Form submission loading
+    const [actionDialog, setActionDialog] = useState({ open: false, lugarId: null, actionType: '' }); // For activate/deactivate
+
     const [snackbar, setSnackbar] = useState({
         open: false,
         message: '',
         severity: 'success'
     });
     const navigate = useNavigate();
+    const theme = useTheme();
 
-    // Verificar autenticación
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             if (!user) {
@@ -62,319 +66,290 @@ const AdminLugares = () => {
         return () => unsubscribe();
     }, [navigate]);
 
-    // Cargar lugares
+    const fetchLugaresAdmin = async () => {
+        setLoading(true);
+        try {
+            // Fetch all places, including inactive ones
+            const data = await obtenerLugaresConFiltros({ includeInactive: true });
+            // Sort by most recently updated, or by creation date as a fallback
+            setLugares(data.sort((a, b) =>
+                new Date(b.fechaActualizacion?.seconds * 1000 || b.fechaCreacion?.seconds * 1000 || 0) -
+                new Date(a.fechaActualizacion?.seconds * 1000 || a.fechaCreacion?.seconds * 1000 || 0)
+            ));
+            console.log('[AdminLugares] Fetched lugaresData:', data);
+        } catch (error) {
+            console.error("[AdminLugares] Error al cargar lugares:", error);
+            setSnackbar({ open: true, message: 'Error al cargar los lugares', severity: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchLugares = async () => {
-            setLoading(true); // Ensure loading is true at the start
-            try {
-                const lugaresCollectionRef = collection(db, 'lugares');
-                console.log('[AdminLugares] Fetching all documents from "lugares" collection...');
-                const lugaresSnapshot = await getDocs(lugaresCollectionRef);
-                console.log(`[AdminLugares] Firestore snapshot size: ${lugaresSnapshot.size}`);
+        fetchLugaresAdmin();
+    }, []);
 
-                const lugaresData = lugaresSnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-
-                if (lugaresSnapshot.size > 0 && lugaresData.length === 0) {
-                    console.warn('[AdminLugares] Firestore snapshot had documents, but lugaresData is empty. Check mapping.');
-                } else if (lugaresSnapshot.size === 0) {
-                    console.log('[AdminLugares] No documents found in "lugares" collection.');
-                } else {
-                    console.log('[AdminLugares] Fetched lugaresData:', lugaresData);
-                }
-
-                setLugares(lugaresData);
-            } catch (error) {
-                console.error("[AdminLugares] Error al cargar lugares:", error);
-                setSnackbar({
-                    open: true,
-                    message: 'Error al cargar los lugares',
-                    severity: 'error'
-                });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchLugares();
-    }, []); // Empty dependency array means this runs once on mount
-
-    const handleOpenDialog = (lugar = null) => {
+    const handleOpenFormDialog = (lugar = null) => {
         if (lugar) {
-            setCurrentLugar({
-                id: lugar.id,
-                nombreLugar: lugar.nombreLugar || '',
-                direccionLugar: lugar.direccionLugar || '',
-                telefono: lugar.telefono || '',
-                horario: lugar.horarios || lugar.horario || '',
-                descripcion: lugar.informacionAdicional || lugar.descripcion || '',
-                tipoRecurso: lugar.tipoRecurso || '',
-                activo: lugar.activo !== undefined ? lugar.activo : true
-            });
+            // For editing, pass the existing lugar data to the form
+            // LugarForm's internal useEffect will map this data correctly
+            setLugarDataForForm(lugar);
             setIsEditing(true);
         } else {
-            setCurrentLugar({
-                nombreLugar: '',
-                direccionLugar: '',
-                telefono: '',
-                horario: '',
-                descripcion: '',
-                tipoRecurso: '',
-                activo: true
-            });
+            // For adding, LugarForm will use its own initialFormData if 'lugar' prop is null
+            setLugarDataForForm(null);
             setIsEditing(false);
         }
         setOpenDialog(true);
     };
 
-    const handleCloseDialog = () => {
+    const handleCloseFormDialog = () => {
+        if (isSubmittingForm) return; // Prevent closing while submitting
         setOpenDialog(false);
+        setLugarDataForForm(null); // Clear data when dialog closes
     };
 
-    const handleInputChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setCurrentLugar(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
-    };
-
-    const handleSubmit = async () => {
-        const originalLoadingState = loading;
-        setLoading(true); // Indicate form submission is in progress
-
+    const handleLugarFormSubmit = async (formData) => {
+        setIsSubmittingForm(true);
         try {
-            const lugarDataToSave = {
-                nombreLugar: currentLugar.nombreLugar,
-                direccionLugar: currentLugar.direccionLugar,
-                telefono: currentLugar.telefono,
-                horarios: currentLugar.horario,
-                informacionAdicional: currentLugar.descripcion,
-                tipoRecurso: currentLugar.tipoRecurso,
-                activo: currentLugar.activo,
-                fechaActualizacion: serverTimestamp()
-            };
-
-            if (isEditing) {
-                const lugarRef = doc(db, 'lugares', currentLugar.id);
-                await updateDoc(lugarRef, lugarDataToSave);
+            if (isEditing && lugarDataForForm && lugarDataForForm.id) {
+                await actualizarLugar(lugarDataForForm.id, formData);
                 setSnackbar({ open: true, message: 'Lugar actualizado correctamente', severity: 'success' });
-                setLugares(prev => prev.map(l => l.id === currentLugar.id ? { id: currentLugar.id, ...lugarDataToSave } : l));
             } else {
-                const newLugarData = { ...lugarDataToSave, fechaCreacion: serverTimestamp() };
-                const docRef = await addDoc(collection(db, 'lugares'), newLugarData);
+                await crearLugar(formData);
                 setSnackbar({ open: true, message: 'Lugar creado correctamente', severity: 'success' });
-                setLugares(prev => [...prev, { id: docRef.id, ...newLugarData }]);
             }
-            handleCloseDialog();
+            fetchLugaresAdmin(); // Re-fetch all places to update the table
+            handleCloseFormDialog();
         } catch (error) {
             console.error("Error al guardar lugar:", error);
             setSnackbar({ open: true, message: `Error al ${isEditing ? 'actualizar' : 'crear'} el lugar`, severity: 'error' });
         } finally {
-            setLoading(originalLoadingState); // Restore original page loading state or set to false if appropriate
+            setIsSubmittingForm(false);
         }
     };
 
-    const handleDelete = async (id) => {
-        if (window.confirm('¿Estás seguro de que deseas marcar este lugar como inactivo?')) {
-            const originalLoadingState = loading;
-            setLoading(true);
-            try {
-                const lugarRef = doc(db, 'lugares', id);
-                await updateDoc(lugarRef, { activo: false, fechaActualizacion: serverTimestamp() });
-                setSnackbar({ open: true, message: 'Lugar marcado como inactivo correctamente', severity: 'success' });
-                setLugares(prev => prev.map(lugar => lugar.id === id ? { ...lugar, activo: false } : lugar));
-            } catch (error) {
-                console.error("Error al marcar como inactivo:", error);
-                setSnackbar({ open: true, message: 'Error al marcar el lugar como inactivo', severity: 'error' });
-            } finally {
-                setLoading(originalLoadingState);
+    const openActionConfirmDialog = (lugarId, type) => {
+        setActionDialog({ open: true, lugarId, actionType: type });
+    };
+
+    const closeActionConfirmDialog = () => {
+        setActionDialog({ open: false, lugarId: null, actionType: '' });
+    };
+
+    const handleConfirmAction = async () => {
+        if (!actionDialog.lugarId || !actionDialog.actionType) return;
+
+        const { lugarId, actionType } = actionDialog;
+        const lugarName = lugares.find(l => l.id === lugarId)?.nombreLugar || 'este lugar';
+
+        setIsSubmittingForm(true); // Use general submitting state for actions too
+        try {
+            let message = '';
+            if (actionType === 'deactivate') {
+                await desactivarLugar(lugarId);
+                message = `Lugar "${lugarName}" desactivado correctamente.`;
+            } else if (actionType === 'activate') {
+                await activarLugar(lugarId);
+                message = `Lugar "${lugarName}" activado correctamente.`;
             }
+            setSnackbar({ open: true, message, severity: 'success' });
+            fetchLugaresAdmin(); // Re-fetch to update status in table
+        } catch (err) {
+            console.error(`Error al ${actionType} lugar:`, err);
+            setSnackbar({ open: true, message: `Error al ${actionType === 'deactivate' ? 'desactivar' : 'activar'} el lugar.`, severity: 'error' });
+        } finally {
+            setIsSubmittingForm(false);
+            closeActionConfirmDialog();
         }
     };
+
 
     const handleCloseSnackbar = () => {
         setSnackbar(prev => ({ ...prev, open: false }));
     };
 
+    const getActionDialogText = () => {
+        if (!actionDialog.lugarId) return '';
+        const name = lugares.find(l => l.id === actionDialog.lugarId)?.nombreLugar || 'este lugar';
+        if (actionDialog.actionType === 'deactivate') {
+            return `¿Estás seguro de que deseas desactivar el lugar "${name}"? No se mostrará públicamente.`;
+        }
+        if (actionDialog.actionType === 'activate') {
+            return `¿Estás seguro de que deseas activar el lugar "${name}"? Se mostrará públicamente.`;
+        }
+        return '¿Estás seguro?';
+    };
+
+
     return (
-        <Box sx={{ mt: 2, mb: 8, p: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ mt: 2, mb: 8, p: { xs: 1, sm: 2 } }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <IconButton onClick={() => navigate('/admin')} sx={{ mr: 1 }}>
+                    <IconButton onClick={() => navigate('/admin')} sx={{ mr: 1 }} aria-label="Volver al panel de admin">
                         <ArrowBackIcon />
                     </IconButton>
                     <Typography variant="h5" component="h1">
-                        Administrar Lugares (Simple)
+                        Administrar Lugares
                     </Typography>
                 </Box>
                 <Button
                     variant="contained"
                     color="primary"
-                    onClick={() => handleOpenDialog()}
+                    onClick={() => handleOpenFormDialog()} // Opens the comprehensive form
                 >
                     Agregar Nuevo Lugar
                 </Button>
             </Box>
 
-            {loading && !openDialog ? ( // Show main loading only if not interacting with dialog
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+            {loading && !openDialog && !actionDialog.open ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
                     <CircularProgress />
                 </Box>
             ) : (
                 <TableContainer component={Paper}>
-                    <Table>
+                    <Table size="small">
                         <TableHead>
                             <TableRow>
-                                <TableCell>Nombre</TableCell>
-                                <TableCell>Dirección</TableCell>
-                                <TableCell>Tipo</TableCell>
-                                <TableCell>Estado</TableCell>
-                                <TableCell>Acciones</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Nombre</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Tipo</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Dirección</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }} align="center">Estado</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {lugares.map((lugar) => (
-                                <TableRow key={lugar.id}>
-                                    <TableCell>{lugar.nombreLugar || lugar.nombre || 'N/A'}</TableCell>
-                                    <TableCell>{lugar.direccionLugar || lugar.direccion || 'N/A'}</TableCell>
-                                    <TableCell>{lugar.tipoRecurso || lugar.tipo || 'N/A'}</TableCell>
-                                    <TableCell>
-                                        {lugar.activo ? 'Activo' : 'Inactivo'}
-                                    </TableCell>
-                                    <TableCell>
-                                        <IconButton
-                                            color="primary"
-                                            onClick={() => handleOpenDialog(lugar)}
-                                        >
-                                            <EditIcon />
-                                        </IconButton>
-                                        <IconButton
-                                            color="error"
-                                            onClick={() => handleDelete(lugar.id)}
-                                            title={lugar.activo ? "Marcar como Inactivo" : "Ya está Inactivo"}
-                                            disabled={!lugar.activo}
-                                        >
-                                            <DeleteIcon />
-                                        </IconButton>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                            {lugares.length === 0 && !loading && (
+                            {lugares.length === 0 && !loading ? (
                                 <TableRow>
                                     <TableCell colSpan={5} align="center">
-                                        No hay lugares registrados o que coincidan con los filtros.
+                                        No hay lugares registrados.
                                     </TableCell>
                                 </TableRow>
+                            ) : (
+                                lugares.map((lugar) => (
+                                    <TableRow key={lugar.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                                        <TableCell>{lugar.nombreLugar || 'N/A'}</TableCell>
+                                        <TableCell>{lugar.tipoRecurso || 'N/A'}</TableCell>
+                                        <TableCell>
+                                            {lugar.direccionLugar}
+                                            {lugar.barrio && `, ${lugar.barrio}`}
+                                            {lugar.provincia && ` (${lugar.provincia})`}
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <Typography
+                                                variant="caption"
+                                                sx={{
+                                                    color: lugar.activo ? 'success.main' : 'text.secondary',
+                                                    fontWeight: 'medium',
+                                                    border: 1,
+                                                    borderColor: lugar.activo ? 'success.light' : 'grey.400',
+                                                    borderRadius: '4px',
+                                                    px: 1, py: 0.5
+                                                }}
+                                            >
+                                                {lugar.activo ? 'Activo' : 'Inactivo'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <IconButton
+                                                color="primary"
+                                                size="small"
+                                                onClick={() => handleOpenFormDialog(lugar)}
+                                                title="Editar Lugar"
+                                            >
+                                                <EditIcon />
+                                            </IconButton>
+                                            {lugar.activo ? (
+                                                <IconButton
+                                                    color="warning"
+                                                    size="small"
+                                                    onClick={() => openActionConfirmDialog(lugar.id, 'deactivate')}
+                                                    title="Desactivar Lugar"
+                                                >
+                                                    <VisibilityOffIcon />
+                                                </IconButton>
+                                            ) : (
+                                                <IconButton
+                                                    color="success"
+                                                    size="small"
+                                                    onClick={() => openActionConfirmDialog(lugar.id, 'activate')}
+                                                    title="Activar Lugar"
+                                                >
+                                                    <VisibilityIcon />
+                                                </IconButton>
+                                            )}
+                                        </TableCell>
+                                    </TableRow>
+                                ))
                             )}
                         </TableBody>
                     </Table>
                 </TableContainer>
             )}
 
-            {/* Diálogo para crear/editar lugar */}
-            <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-                <DialogTitle>
+            {/* Dialog for Adding/Editing Lugar using LugarForm */}
+            <Dialog open={openDialog} onClose={handleCloseFormDialog} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ pb: 1, fontSize: '1.25rem' }}>
                     {isEditing ? 'Editar Lugar' : 'Agregar Nuevo Lugar'}
                 </DialogTitle>
-                <DialogContent>
-                    <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-                        <TextField
-                            name="nombreLugar"
-                            label="Nombre del lugar"
-                            value={currentLugar.nombreLugar}
-                            onChange={handleInputChange}
-                            fullWidth
-                            required
-                        />
-                        <TextField
-                            name="direccionLugar"
-                            label="Dirección"
-                            value={currentLugar.direccionLugar}
-                            onChange={handleInputChange}
-                            fullWidth
-                            required
-                        />
-                        <TextField
-                            name="telefono"
-                            label="Teléfono"
-                            value={currentLugar.telefono}
-                            onChange={handleInputChange}
-                            fullWidth
-                        />
-                        <TextField
-                            name="horario"
-                            label="Horario"
-                            value={currentLugar.horario}
-                            onChange={handleInputChange}
-                            fullWidth
-                        />
-                        <FormControl fullWidth required>
-                            <InputLabel>Tipo</InputLabel>
-                            <Select
-                                name="tipoRecurso"
-                                value={currentLugar.tipoRecurso}
-                                onChange={handleInputChange}
-                                label="Tipo"
-                            >
-                                {TIPOS_RECURSO.map((tipo) => (
-                                    <MenuItem key={tipo} value={tipo}>{tipo}</MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <TextField
-                            name="descripcion"
-                            label="Descripción"
-                            value={currentLugar.descripcion}
-                            onChange={handleInputChange}
-                            fullWidth
-                            multiline
-                            rows={4}
-                        />
-                        {isEditing && (
-                            <FormControl fullWidth>
-                                <InputLabel>Estado</InputLabel>
-                                <Select
-                                    name="activo"
-                                    value={currentLugar.activo}
-                                    onChange={handleInputChange}
-                                    label="Estado"
-                                >
-                                    <MenuItem value={true}>Activo</MenuItem>
-                                    <MenuItem value={false}>Inactivo</MenuItem>
-                                </Select>
-                            </FormControl>
-                        )}
-                    </Box>
+                <DialogContent sx={{ pt: '10px !important' }}>
+                    {/* Use a key to force re-mount and re-initialization of LugarForm when lugarDataForForm changes significantly (e.g. new vs edit) */}
+                    <LugarForm
+                        key={lugarDataForForm ? lugarDataForForm.id : 'new-lugar'}
+                        lugar={lugarDataForForm}
+                        onSubmit={handleLugarFormSubmit}
+                        isLoading={isSubmittingForm}
+                        formId="admin-lugar-dialog-form" // Unique ID for the form
+                        hideSubmitButton={true} // Dialog will have its own submit button
+                        isModalVersion={true} // Styles for modal
+                    />
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={handleCloseDialog}>Cancelar</Button>
+                <DialogActions sx={{ p: theme.spacing(2, 3) }}>
+                    <Button onClick={handleCloseFormDialog} disabled={isSubmittingForm}>Cancelar</Button>
                     <Button
-                        onClick={handleSubmit}
+                        type="submit"
+                        form="admin-lugar-dialog-form" // Connects to the LugarForm
                         variant="contained"
                         color="primary"
-                        disabled={!currentLugar.nombreLugar || !currentLugar.direccionLugar || !currentLugar.tipoRecurso}
+                        disabled={isSubmittingForm}
                     >
-                        {isEditing ? 'Actualizar' : 'Crear'}
+                        {isSubmittingForm ? <CircularProgress size={24} /> : (isEditing ? 'Actualizar Lugar' : 'Crear Lugar')}
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Snackbar para notificaciones */}
+            {/* Confirmation Dialog for Activate/Deactivate */}
+            <Dialog
+                open={actionDialog.open}
+                onClose={closeActionConfirmDialog}
+            >
+                <DialogTitle>Confirmar Acción</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {getActionDialogText()}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={closeActionConfirmDialog} disabled={isSubmittingForm}>Cancelar</Button>
+                    <Button
+                        onClick={handleConfirmAction}
+                        color={actionDialog.actionType === 'activate' ? 'success' : 'warning'}
+                        variant="contained"
+                        disabled={isSubmittingForm}
+                    >
+                        {isSubmittingForm ? <CircularProgress size={24} /> : 'Confirmar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+
             <Snackbar
                 open={snackbar.open}
                 autoHideDuration={6000}
                 onClose={handleCloseSnackbar}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
             >
-                <Alert
-                    onClose={handleCloseSnackbar}
-                    severity={snackbar.severity}
-                    sx={{ width: '100%' }}
-                    variant="filled"
-                >
+                <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }} variant="filled">
                     {snackbar.message}
                 </Alert>
             </Snackbar>
