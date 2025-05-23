@@ -26,21 +26,22 @@ import {
 } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon, ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
 import { onAuthStateChanged } from 'firebase/auth';
+import { TIPOS_RECURSO } from '../constants/lugaresConstants';
 
 const AdminLugares = () => {
     const [lugares, setLugares] = useState([]);
     const [loading, setLoading] = useState(true);
     const [openDialog, setOpenDialog] = useState(false);
     const [currentLugar, setCurrentLugar] = useState({
-        nombre: '',
-        direccion: '',
+        nombreLugar: '',
+        direccionLugar: '',
         telefono: '',
         horario: '',
         descripcion: '',
-        tipo: '',
+        tipoRecurso: '',
         activo: true
     });
     const [isEditing, setIsEditing] = useState(false);
@@ -64,16 +65,29 @@ const AdminLugares = () => {
     // Cargar lugares
     useEffect(() => {
         const fetchLugares = async () => {
+            setLoading(true); // Ensure loading is true at the start
             try {
-                const lugaresCollection = collection(db, 'lugares');
-                const lugaresSnapshot = await getDocs(lugaresCollection);
+                const lugaresCollectionRef = collection(db, 'lugares');
+                console.log('[AdminLugares] Fetching all documents from "lugares" collection...');
+                const lugaresSnapshot = await getDocs(lugaresCollectionRef);
+                console.log(`[AdminLugares] Firestore snapshot size: ${lugaresSnapshot.size}`);
+
                 const lugaresData = lugaresSnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
+
+                if (lugaresSnapshot.size > 0 && lugaresData.length === 0) {
+                    console.warn('[AdminLugares] Firestore snapshot had documents, but lugaresData is empty. Check mapping.');
+                } else if (lugaresSnapshot.size === 0) {
+                    console.log('[AdminLugares] No documents found in "lugares" collection.');
+                } else {
+                    console.log('[AdminLugares] Fetched lugaresData:', lugaresData);
+                }
+
                 setLugares(lugaresData);
             } catch (error) {
-                console.error("Error al cargar lugares:", error);
+                console.error("[AdminLugares] Error al cargar lugares:", error);
                 setSnackbar({
                     open: true,
                     message: 'Error al cargar los lugares',
@@ -85,20 +99,29 @@ const AdminLugares = () => {
         };
 
         fetchLugares();
-    }, []);
+    }, []); // Empty dependency array means this runs once on mount
 
     const handleOpenDialog = (lugar = null) => {
         if (lugar) {
-            setCurrentLugar(lugar);
+            setCurrentLugar({
+                id: lugar.id,
+                nombreLugar: lugar.nombreLugar || '',
+                direccionLugar: lugar.direccionLugar || '',
+                telefono: lugar.telefono || '',
+                horario: lugar.horarios || lugar.horario || '',
+                descripcion: lugar.informacionAdicional || lugar.descripcion || '',
+                tipoRecurso: lugar.tipoRecurso || '',
+                activo: lugar.activo !== undefined ? lugar.activo : true
+            });
             setIsEditing(true);
         } else {
             setCurrentLugar({
-                nombre: '',
-                direccion: '',
+                nombreLugar: '',
+                direccionLugar: '',
                 telefono: '',
                 horario: '',
                 descripcion: '',
-                tipo: '',
+                tipoRecurso: '',
                 activo: true
             });
             setIsEditing(false);
@@ -111,102 +134,63 @@ const AdminLugares = () => {
     };
 
     const handleInputChange = (e) => {
-        const { name, value } = e.target;
+        const { name, value, type, checked } = e.target;
         setCurrentLugar(prev => ({
             ...prev,
-            [name]: value
+            [name]: type === 'checkbox' ? checked : value
         }));
     };
 
     const handleSubmit = async () => {
+        const originalLoadingState = loading;
+        setLoading(true); // Indicate form submission is in progress
+
         try {
-            setLoading(true);
+            const lugarDataToSave = {
+                nombreLugar: currentLugar.nombreLugar,
+                direccionLugar: currentLugar.direccionLugar,
+                telefono: currentLugar.telefono,
+                horarios: currentLugar.horario,
+                informacionAdicional: currentLugar.descripcion,
+                tipoRecurso: currentLugar.tipoRecurso,
+                activo: currentLugar.activo,
+                fechaActualizacion: serverTimestamp()
+            };
 
             if (isEditing) {
-                // Actualizar lugar existente
                 const lugarRef = doc(db, 'lugares', currentLugar.id);
-                const lugarData = {
-                    ...currentLugar,
-                    fechaActualizacion: serverTimestamp()
-                };
-                delete lugarData.id; // Eliminar el ID antes de actualizar
-
-                await updateDoc(lugarRef, lugarData);
-
-                setSnackbar({
-                    open: true,
-                    message: 'Lugar actualizado correctamente',
-                    severity: 'success'
-                });
-
-                // Actualizar la lista de lugares
-                setLugares(prev => prev.map(lugar =>
-                    lugar.id === currentLugar.id ? { id: currentLugar.id, ...lugarData } : lugar
-                ));
+                await updateDoc(lugarRef, lugarDataToSave);
+                setSnackbar({ open: true, message: 'Lugar actualizado correctamente', severity: 'success' });
+                setLugares(prev => prev.map(l => l.id === currentLugar.id ? { id: currentLugar.id, ...lugarDataToSave } : l));
             } else {
-                // Crear nuevo lugar
-                const lugarData = {
-                    ...currentLugar,
-                    fechaCreacion: serverTimestamp(),
-                    fechaActualizacion: serverTimestamp()
-                };
-
-                const docRef = await addDoc(collection(db, 'lugares'), lugarData);
-
-                setSnackbar({
-                    open: true,
-                    message: 'Lugar creado correctamente',
-                    severity: 'success'
-                });
-
-                // Agregar el nuevo lugar a la lista
-                setLugares(prev => [...prev, { id: docRef.id, ...lugarData }]);
+                const newLugarData = { ...lugarDataToSave, fechaCreacion: serverTimestamp() };
+                const docRef = await addDoc(collection(db, 'lugares'), newLugarData);
+                setSnackbar({ open: true, message: 'Lugar creado correctamente', severity: 'success' });
+                setLugares(prev => [...prev, { id: docRef.id, ...newLugarData }]);
             }
-
             handleCloseDialog();
         } catch (error) {
             console.error("Error al guardar lugar:", error);
-            setSnackbar({
-                open: true,
-                message: `Error al ${isEditing ? 'actualizar' : 'crear'} el lugar`,
-                severity: 'error'
-            });
+            setSnackbar({ open: true, message: `Error al ${isEditing ? 'actualizar' : 'crear'} el lugar`, severity: 'error' });
         } finally {
-            setLoading(false);
+            setLoading(originalLoadingState); // Restore original page loading state or set to false if appropriate
         }
     };
 
     const handleDelete = async (id) => {
-        if (window.confirm('¿Estás seguro de que deseas eliminar este lugar?')) {
+        if (window.confirm('¿Estás seguro de que deseas marcar este lugar como inactivo?')) {
+            const originalLoadingState = loading;
+            setLoading(true);
             try {
-                setLoading(true);
-
-                // Eliminación lógica (cambiar estado a inactivo)
                 const lugarRef = doc(db, 'lugares', id);
-                await updateDoc(lugarRef, {
-                    activo: false,
-                    fechaActualizacion: serverTimestamp()
-                });
-
-                setSnackbar({
-                    open: true,
-                    message: 'Lugar eliminado correctamente',
-                    severity: 'success'
-                });
-
-                // Actualizar la lista de lugares
-                setLugares(prev => prev.map(lugar =>
-                    lugar.id === id ? { ...lugar, activo: false } : lugar
-                ));
+                await updateDoc(lugarRef, { activo: false, fechaActualizacion: serverTimestamp() });
+                setSnackbar({ open: true, message: 'Lugar marcado como inactivo correctamente', severity: 'success' });
+                setLugares(prev => prev.map(lugar => lugar.id === id ? { ...lugar, activo: false } : lugar));
             } catch (error) {
-                console.error("Error al eliminar lugar:", error);
-                setSnackbar({
-                    open: true,
-                    message: 'Error al eliminar el lugar',
-                    severity: 'error'
-                });
+                console.error("Error al marcar como inactivo:", error);
+                setSnackbar({ open: true, message: 'Error al marcar el lugar como inactivo', severity: 'error' });
             } finally {
-                setLoading(false);
+                setLoading(originalLoadingState);
             }
         }
     };
@@ -223,7 +207,7 @@ const AdminLugares = () => {
                         <ArrowBackIcon />
                     </IconButton>
                     <Typography variant="h5" component="h1">
-                        Administrar Lugares
+                        Administrar Lugares (Simple)
                     </Typography>
                 </Box>
                 <Button
@@ -235,7 +219,7 @@ const AdminLugares = () => {
                 </Button>
             </Box>
 
-            {loading ? (
+            {loading && !openDialog ? ( // Show main loading only if not interacting with dialog
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
                     <CircularProgress />
                 </Box>
@@ -254,9 +238,9 @@ const AdminLugares = () => {
                         <TableBody>
                             {lugares.map((lugar) => (
                                 <TableRow key={lugar.id}>
-                                    <TableCell>{lugar.nombre}</TableCell>
-                                    <TableCell>{lugar.direccion}</TableCell>
-                                    <TableCell>{lugar.tipo}</TableCell>
+                                    <TableCell>{lugar.nombreLugar || lugar.nombre || 'N/A'}</TableCell>
+                                    <TableCell>{lugar.direccionLugar || lugar.direccion || 'N/A'}</TableCell>
+                                    <TableCell>{lugar.tipoRecurso || lugar.tipo || 'N/A'}</TableCell>
                                     <TableCell>
                                         {lugar.activo ? 'Activo' : 'Inactivo'}
                                     </TableCell>
@@ -270,16 +254,18 @@ const AdminLugares = () => {
                                         <IconButton
                                             color="error"
                                             onClick={() => handleDelete(lugar.id)}
+                                            title={lugar.activo ? "Marcar como Inactivo" : "Ya está Inactivo"}
+                                            disabled={!lugar.activo}
                                         >
                                             <DeleteIcon />
                                         </IconButton>
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {lugares.length === 0 && (
+                            {lugares.length === 0 && !loading && (
                                 <TableRow>
                                     <TableCell colSpan={5} align="center">
-                                        No hay lugares registrados
+                                        No hay lugares registrados o que coincidan con los filtros.
                                     </TableCell>
                                 </TableRow>
                             )}
@@ -294,19 +280,19 @@ const AdminLugares = () => {
                     {isEditing ? 'Editar Lugar' : 'Agregar Nuevo Lugar'}
                 </DialogTitle>
                 <DialogContent>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                    <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
                         <TextField
-                            name="nombre"
+                            name="nombreLugar"
                             label="Nombre del lugar"
-                            value={currentLugar.nombre}
+                            value={currentLugar.nombreLugar}
                             onChange={handleInputChange}
                             fullWidth
                             required
                         />
                         <TextField
-                            name="direccion"
+                            name="direccionLugar"
                             label="Dirección"
-                            value={currentLugar.direccion}
+                            value={currentLugar.direccionLugar}
                             onChange={handleInputChange}
                             fullWidth
                             required
@@ -328,19 +314,14 @@ const AdminLugares = () => {
                         <FormControl fullWidth required>
                             <InputLabel>Tipo</InputLabel>
                             <Select
-                                name="tipo"
-                                value={currentLugar.tipo}
+                                name="tipoRecurso"
+                                value={currentLugar.tipoRecurso}
                                 onChange={handleInputChange}
                                 label="Tipo"
                             >
-                                <MenuItem value="Comida">Comida</MenuItem>
-                                <MenuItem value="Higiene">Higiene</MenuItem>
-                                <MenuItem value="Dormir">Dormir</MenuItem>
-                                <MenuItem value="Salud">Salud</MenuItem>
-                                <MenuItem value="Educación">Educación</MenuItem>
-                                <MenuItem value="Trabajo">Trabajo</MenuItem>
-                                <MenuItem value="Baños">Baños</MenuItem>
-                                <MenuItem value="Lavandería">Lavandería</MenuItem>
+                                {TIPOS_RECURSO.map((tipo) => (
+                                    <MenuItem key={tipo} value={tipo}>{tipo}</MenuItem>
+                                ))}
                             </Select>
                         </FormControl>
                         <TextField
@@ -374,7 +355,7 @@ const AdminLugares = () => {
                         onClick={handleSubmit}
                         variant="contained"
                         color="primary"
-                        disabled={!currentLugar.nombre || !currentLugar.direccion || !currentLugar.tipo}
+                        disabled={!currentLugar.nombreLugar || !currentLugar.direccionLugar || !currentLugar.tipoRecurso}
                     >
                         {isEditing ? 'Actualizar' : 'Crear'}
                     </Button>
@@ -392,6 +373,7 @@ const AdminLugares = () => {
                     onClose={handleCloseSnackbar}
                     severity={snackbar.severity}
                     sx={{ width: '100%' }}
+                    variant="filled"
                 >
                     {snackbar.message}
                 </Alert>

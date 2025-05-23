@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom'; // Import useLocation
 import {
     Box,
     Typography,
@@ -42,16 +43,32 @@ const TIPOS_RECURSO_FILTRO = ['Todos', ...TIPOS_RECURSO.filter(t => t && t !== '
 const PROVINCIAS_FILTRO = ['Todas', ...PROVINCIAS_ARGENTINAS.filter(p => p)];
 
 const Lugares = () => {
+    const location = useLocation(); // Get location object
     const [lugares, setLugares] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const [filtros, setFiltros] = useState({
-        tipoRecurso: 'Todos',
-        provincia: 'Todas',
-        barrio: 'Todos'
+    const [filtros, setFiltros] = useState(() => {
+        const params = new URLSearchParams(location.search);
+        const tipoRecursoFromQuery = params.get('tipoRecurso');
+        return {
+            tipoRecurso: tipoRecursoFromQuery && TIPOS_RECURSO_FILTRO.includes(tipoRecursoFromQuery) ? tipoRecursoFromQuery : 'Todos',
+            provincia: 'Todas',
+            barrio: 'Todos'
+        };
     });
     const [barriosDisponiblesFiltro, setBarriosDisponiblesFiltro] = useState([]);
+
+    // Effect to update available barrios when provincia filter changes
+    useEffect(() => {
+        if (filtros.provincia === 'Ciudad Autónoma de Buenos Aires') {
+            setBarriosDisponiblesFiltro(['Todos', ...BARRIOS_CABA]);
+        } else if (filtros.provincia === 'Buenos Aires') {
+            setBarriosDisponiblesFiltro(['Todos', ...PARTIDOS_AMBA_BSAS]);
+        } else {
+            setBarriosDisponiblesFiltro([]); // Ensure it's an empty array for other provinces or "Todas"
+        }
+    }, [filtros.provincia]); // Only depends on filtros.provincia
 
     const fetchLugares = useCallback(async () => {
         try {
@@ -59,7 +76,7 @@ const Lugares = () => {
             setError(null);
             const serviceFiltros = {
                 tipoRecurso: filtros.tipoRecurso === 'Todos' ? null : filtros.tipoRecurso,
-                provincia: filtros.provincia === 'Todos' ? null : filtros.provincia,
+                provincia: filtros.provincia === 'Todas' ? null : filtros.provincia, // Corrected from 'Todos' to 'Todas'
                 barrio: filtros.barrio === 'Todos' || !barriosDisponiblesFiltro.includes(filtros.barrio) ? null : filtros.barrio,
             };
             Object.keys(serviceFiltros).forEach(key => serviceFiltros[key] == null && delete serviceFiltros[key]);
@@ -72,25 +89,20 @@ const Lugares = () => {
         } finally {
             setLoading(false);
         }
-    }, [filtros, barriosDisponiblesFiltro]); // Added barriosDisponiblesFiltro as it affects the 'barrio' filter value
+    }, [filtros, barriosDisponiblesFiltro]); // Depends on the actual filter values
 
+    // Effect to fetch places when fetchLugares (itself dependent on filters) changes
     useEffect(() => {
         fetchLugares();
-    }, [fetchLugares]);
+    }, [fetchLugares]); // Depends on the memoized fetchLugares function
 
     const handleFiltroChange = (event) => {
         const { name, value } = event.target;
         setFiltros(prevFiltros => {
             const newFiltros = { ...prevFiltros, [name]: value };
             if (name === 'provincia') {
-                newFiltros.barrio = 'Todos';
-                if (value === 'Ciudad Autónoma de Buenos Aires') {
-                    setBarriosDisponiblesFiltro(['Todos', ...BARRIOS_CABA]);
-                } else if (value === 'Buenos Aires') {
-                    setBarriosDisponiblesFiltro(['Todos', ...PARTIDOS_AMBA_BSAS]);
-                } else {
-                    setBarriosDisponiblesFiltro([]);
-                }
+                newFiltros.barrio = 'Todos'; // Reset barrio when provincia changes
+                // The logic to update barriosDisponiblesFiltro is now handled by its own useEffect
             }
             return newFiltros;
         });
@@ -174,7 +186,7 @@ const Lugares = () => {
                                     value={filtros.barrio}
                                     onChange={handleFiltroChange}
                                     label={filtros.provincia === 'Ciudad Autónoma de Buenos Aires' ? 'Barrio/Comuna' : 'Partido/Localidad'}
-                                    disabled={barriosDisponiblesFiltro.length <= 1} // Disabled if only "Todos" is there
+                                    disabled={barriosDisponiblesFiltro.length <= 1 && filtros.barrio === 'Todos'} // More robust disabled check
                                     displayEmpty
                                     inputProps={{ style: { fontSize: '0.9rem' } }}
                                     MenuProps={{ PaperProps: { sx: { maxHeight: 200 } } }}

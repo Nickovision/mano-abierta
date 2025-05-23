@@ -4,32 +4,49 @@ import Grid from '@mui/material/Grid'; // Importación directa de Grid
 import { useNavigate } from 'react-router-dom';
 import {
     Restaurant as FoodIcon,
+    Hotel as AlojamientoIcon, // Renamed for clarity, was SleepIcon
+    Checkroom as RopaIcon, // New Icon
+    Assignment as TramitesIcon, // Re-using, was AssignmentIcon
+    AccountBalance as InstitucionIcon, // New Icon
+    // Icons below are not directly used from TIPOS_RECURSO but kept for reference if needed elsewhere
     Soap as HygieneIcon,
-    Hotel as SleepIcon,
     LocalHospital as HealthIcon,
     School as EducationIcon,
     Work as JobIcon,
     Wc as BathroomIcon,
     LocalLaundryService as LaundryIcon
 } from '@mui/icons-material';
+import { TIPOS_RECURSO } from '../constants/lugaresConstants'; // Import TIPOS_RECURSO
 
-const categories = [
-    { name: 'Comida', icon: <FoodIcon fontSize="large" />, type: 'Comida' },
-    { name: 'Higiene', icon: <HygieneIcon fontSize="large" />, type: 'Higiene' },
-    { name: 'Dormir', icon: <SleepIcon fontSize="large" />, type: 'Dormir' },
-    { name: 'Salud', icon: <HealthIcon fontSize="large" />, type: 'Salud' },
-    { name: 'Educación', icon: <EducationIcon fontSize="large" />, type: 'Educación' },
-    { name: 'Trabajo', icon: <JobIcon fontSize="large" />, type: 'Trabajo' },
-    { name: 'Baños', icon: <BathroomIcon fontSize="large" />, type: 'Baños' },
-    { name: 'Lavandería', icon: <LaundryIcon fontSize="large" />, type: 'Lavandería' }
-];
+// Helper to map TIPOS_RECURSO to icons and names
+const getCategoryDetails = (tipo) => {
+    switch (tipo) {
+        case 'Comida':
+            return { name: 'Comida', icon: <FoodIcon fontSize="large" />, type: tipo };
+        case 'Alojamiento':
+            return { name: 'Alojamiento', icon: <AlojamientoIcon fontSize="large" />, type: tipo };
+        case 'Ropa':
+            return { name: 'Ropa', icon: <RopaIcon fontSize="large" />, type: tipo };
+        case 'Trámites':
+            return { name: 'Trámites', icon: <TramitesIcon fontSize="large" />, type: tipo };
+        case 'Institución':
+            return { name: 'Institución', icon: <InstitucionIcon fontSize="large" />, type: tipo };
+        default:
+            return null; // For 'Otro' or any other types we don't want in the grid
+    }
+};
+
+const categories = TIPOS_RECURSO
+    .map(tipo => getCategoryDetails(tipo))
+    .filter(category => category !== null); // Filter out 'Otro' or any unmapped types
 
 const CategoryGrid = () => {
     const navigate = useNavigate();
 
     const handleCategoryClick = (type) => {
-        // Navegar a la página de lugares con el tipo seleccionado como parámetro de consulta
-        navigate(`/lugares?tipo=${type}`);
+        // Navigate to the places page with the type selected as a query parameter
+        // Using 'tipoRecurso' to match the filter state key in Lugares.jsx
+        navigate(`/lugares?tipoRecurso=${encodeURIComponent(type)}`);
     };
 
     return (
